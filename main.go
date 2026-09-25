@@ -1,6 +1,8 @@
 // dbq - minimal multi-database CLI with cred profiles and read-only guardrails.
 //
 //	dbq list                     show configured profiles
+//	dbq add                      interactive wizard to add a profile
+//	dbq edit <profile>           interactively update an existing profile
 //	dbq ping <profile>           test connectivity
 //	dbq query <profile> [flags] <sql...> | -    run a query ('-' = stdin)
 //	dbq schema <profile> [flags] [table]        list tables / columns
@@ -17,6 +19,7 @@ import (
 	"os"
 	"os/signal"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 	"syscall"
@@ -37,6 +40,7 @@ const usageText = `dbq - multi-database query CLI with guarded cred profiles
 
 Usage:
   dbq add                          Interactive wizard to add a profile
+  dbq edit <profile>               Interactively update an existing profile
   dbq list                          List profiles (never shows passwords)
   dbq ping <profile>                Test connectivity
   dbq query <profile> [--format table|json|csv] [--limit N] <sql...>
@@ -64,6 +68,8 @@ func run(ctx context.Context, argv []string, out, errW io.Writer) int {
 		return cmdList(out, errW)
 	case "add":
 		return cmdAdd(errW)
+	case "edit":
+		return cmdEdit(argv[1:], errW)
 	case "ping":
 		return withProfile(argv[1:], errW, func(p dbq.Profile, name string) int {
 			start := time.Now()
@@ -129,123 +135,152 @@ func withProfile(args []string, errW io.Writer, fn func(dbq.Profile, string) int
 	return fn(p, args[0])
 }
 
-// cmdAdd is the interactive profile wizard. The password is read with
-// echo disabled (TTY) or from stdin - never from argv, so it cannot leak
-// into shell history or process lists.
+// prompter wraps the interactive stdin helpers shared by the add and edit
+// wizards. Secrets are read with echo disabled (TTY) or from stdin - never
+// from argv, so they cannot leak into shell history or process lists.
+type prompter struct {
+	in   *bufio.Reader
+	tty  bool
+	errW io.Writer
+}
+
+func newPrompter(errW io.Writer) *prompter {
+	tty := term.IsTerminal(int(os.Stdin.Fd()))
+	if !tty {
+		fmt.Fprintln(errW, "dbq: note: stdin is not a terminal - input will NOT be hidden")
+	}
+	return &prompter{in: bufio.NewReader(os.Stdin), tty: tty, errW: errW}
+}
+
+func (pr *prompter) ask(label, def string) string {
+	if def != "" {
+		fmt.Fprintf(pr.errW, "%s [%s]: ", label, def)
+	} else {
+		fmt.Fprintf(pr.errW, "%s: ", label)
+	}
+	line, err := pr.in.ReadString('\n')
+	if err != nil && line == "" {
+		return ""
+	}
+	line = strings.TrimRight(line, "\r\n")
+	if line == "" {
+		return def
+	}
+	return line
+}
+
+func (pr *prompter) secret(label string) string {
+	if pr.tty {
+		fmt.Fprintf(pr.errW, "%s: ", label)
+		b, err := term.ReadPassword(int(os.Stdin.Fd()))
+		fmt.Fprintln(pr.errW)
+		if err != nil {
+			return ""
+		}
+		return string(b)
+	}
+	return pr.ask(label, "")
+}
+
+func (pr *prompter) askYesNo(label string, def bool) bool {
+	hint := "Y/n"
+	if !def {
+		hint = "y/N"
+	}
+	v := pr.ask(label+" ["+hint+"]", "")
+	switch strings.ToLower(v) {
+	case "":
+		return def
+	case "y", "yes":
+		return true
+	default:
+		return false
+	}
+}
+
+// promptFields collects type and connection fields for both wizards. def
+// supplies the current values as defaults (Enter keeps them); for add it is
+// the zero Profile, so required fields have no default. Password and
+// readonly prompts stay with the callers.
+func promptFields(pr *prompter, def dbq.Profile) (dbq.Profile, error) {
+	var p dbq.Profile
+	typeDef := def.Type
+	if typeDef == "" {
+		typeDef = "mysql"
+	}
+	p.Type = pr.ask("Type (mysql|postgres|sqlserver|oracle|sqlite)", typeDef)
+
+	if p.Type == "sqlite" {
+		p.Path = pr.ask("Database file path", def.Path)
+		if p.Path == "" {
+			return p, errors.New("path is required for sqlite")
+		}
+		return p, nil
+	}
+
+	allowed := map[string]bool{"mysql": true, "postgres": true, "sqlserver": true, "oracle": true}
+	if !allowed[p.Type] {
+		return p, fmt.Errorf("unknown type %q", p.Type)
+	}
+	p.Host = pr.ask("Host", def.Host)
+	if p.Host == "" {
+		return p, errors.New("host is required")
+	}
+	defPort := map[string]string{"mysql": "3306", "postgres": "5432", "sqlserver": "1433", "oracle": "1521"}[p.Type]
+	if def.Port > 0 {
+		defPort = strconv.Itoa(def.Port)
+	}
+	portStr := pr.ask("Port", defPort)
+	port, err := strconv.Atoi(portStr)
+	if err != nil || port < 1 || port > 65535 {
+		return p, fmt.Errorf("invalid port %q", portStr)
+	}
+	p.Port = port
+
+	if p.Type == "oracle" {
+		p.Database = pr.ask("Service name (empty = use SID)", def.Database)
+		if p.Database == "" {
+			p.SID = pr.ask("SID", def.SID)
+			if p.SID == "" {
+				return p, errors.New("oracle needs a service name or SID")
+			}
+		}
+	} else {
+		p.Database = pr.ask("Database", def.Database)
+		if p.Database == "" {
+			return p, errors.New("database is required")
+		}
+	}
+	p.User = pr.ask("User", def.User)
+	return p, nil
+}
+
+// cmdAdd is the interactive profile wizard.
 func cmdAdd(errW io.Writer) int {
 	path, err := dbq.DefaultPath()
 	if err != nil {
 		fmt.Fprintf(errW, "dbq: ERROR: %v\n", err)
 		return 1
 	}
-	tty := term.IsTerminal(int(os.Stdin.Fd()))
-	if !tty {
-		fmt.Fprintln(errW, "dbq: note: stdin is not a terminal - input will NOT be hidden")
-	}
-	in := bufio.NewReader(os.Stdin)
+	pr := newPrompter(errW)
 
-	ask := func(label, def string) string {
-		if def != "" {
-			fmt.Fprintf(errW, "%s [%s]: ", label, def)
-		} else {
-			fmt.Fprintf(errW, "%s: ", label)
-		}
-		line, err := in.ReadString('\n')
-		if err != nil && line == "" {
-			return ""
-		}
-		line = strings.TrimRight(line, "\r\n")
-		if line == "" {
-			return def
-		}
-		return line
-	}
-	secret := func(label string) string {
-		if tty {
-			fmt.Fprintf(errW, "%s: ", label)
-			b, err := term.ReadPassword(int(os.Stdin.Fd()))
-			fmt.Fprintln(errW)
-			if err != nil {
-				return ""
-			}
-			return string(b)
-		}
-		return ask(label, "")
-	}
-	askYesNo := func(label string, def bool) bool {
-		hint := "Y/n"
-		if !def {
-			hint = "y/N"
-		}
-		v := ask(label+" ["+hint+"]", "")
-		switch strings.ToLower(v) {
-		case "":
-			return def
-		case "y", "yes":
-			return true
-		default:
-			return false
-		}
-	}
-
-	var p dbq.Profile
-	name := ask("Profile name (letters, digits, '_' '-')", "")
+	name := pr.ask("Profile name (letters, digits, '_' '-')", "")
 	if name == "" {
 		fmt.Fprintln(errW, "dbq: ERROR: profile name is required")
 		return 1
 	}
 
-	typeStr := ask("Type (mysql|postgres|sqlserver|oracle|sqlite)", "mysql")
-	p.Type = typeStr
+	p, err := promptFields(pr, dbq.Profile{})
+	if err != nil {
+		fmt.Fprintf(errW, "dbq: ERROR: %v\n", err)
+		return 1
+	}
 
-	if typeStr == "sqlite" {
-		p.Path = ask("Database file path", "")
-		if p.Path == "" {
-			fmt.Fprintln(errW, "dbq: ERROR: path is required for sqlite")
-			return 1
-		}
-	} else {
-		allowed := map[string]bool{"mysql": true, "postgres": true, "sqlserver": true, "oracle": true}
-		if !allowed[typeStr] {
-			fmt.Fprintf(errW, "dbq: ERROR: unknown type %q\n", typeStr)
-			return 1
-		}
-		p.Host = ask("Host", "")
-		if p.Host == "" {
-			fmt.Fprintln(errW, "dbq: ERROR: host is required")
-			return 1
-		}
-		defPort := map[string]string{"mysql": "3306", "postgres": "5432", "sqlserver": "1433", "oracle": "1521"}[typeStr]
-		portStr := ask("Port", defPort)
-		port, err := strconv.Atoi(portStr)
-		if err != nil || port < 1 || port > 65535 {
-			fmt.Fprintf(errW, "dbq: ERROR: invalid port %q\n", portStr)
-			return 1
-		}
-		p.Port = port
-
-		if typeStr == "oracle" {
-			p.Database = ask("Service name (empty = use SID)", "")
-			if p.Database == "" {
-				p.SID = ask("SID", "")
-				if p.SID == "" {
-					fmt.Fprintln(errW, "dbq: ERROR: oracle needs a service name or SID")
-					return 1
-				}
-			}
-		} else {
-			p.Database = ask("Database", "")
-			if p.Database == "" {
-				fmt.Fprintln(errW, "dbq: ERROR: database is required")
-				return 1
-			}
-		}
-		p.User = ask("User", "")
-
+	if p.Type != "sqlite" {
 		fmt.Fprintln(errW, "Password source: [1] inline (stored in profile file, hidden prompt)  [2] environment variable  [3] none")
-		switch ask("Choice", "1") {
+		switch pr.ask("Choice", "1") {
 		case "2":
-			v := ask("Environment variable name (e.g. DBPASS_PROD)", "")
+			v := pr.ask("Environment variable name (e.g. DBPASS_PROD)", "")
 			if v == "" || !envNameRe.MatchString(v) {
 				fmt.Fprintf(errW, "dbq: ERROR: invalid env var name %q\n", v)
 				return 1
@@ -254,34 +289,27 @@ func cmdAdd(errW io.Writer) int {
 		case "3":
 			// no password
 		default:
-			p.Password = secret("Password")
+			p.Password = pr.secret("Password")
 			if p.Password == "" {
 				fmt.Fprintln(errW, "dbq: ERROR: password is required for choice 1 (or pick 2/3)")
 				return 1
 			}
 		}
-		if typeStr == "postgres" {
-			p.SSLMode = ask("sslmode (empty = driver default)", "")
+		if p.Type == "postgres" {
+			p.SSLMode = pr.ask("sslmode (empty = driver default)", "")
 		}
 	}
 
-	if !askYesNo("Read-only profile", true) {
+	if !pr.askYesNo("Read-only profile", true) {
 		ro := false
 		if p.ReadOnly == nil {
 			p.ReadOnly = &ro
 		}
 	}
 
-	pwDesc := "none"
-	switch {
-	case p.PasswordEnv != "":
-		pwDesc = "env:" + p.PasswordEnv
-	case p.Password != "":
-		pwDesc = "inline (hidden)"
-	}
 	fmt.Fprintf(errW, "\nSummary: %s  type=%s  %s  password=%s  readonly=%v\n",
-		name, p.Type, summaryAddr(p), pwDesc, p.ResolvedReadOnly())
-	if !askYesNo("Append to "+path, true) {
+		name, p.Type, summaryAddr(p), passwordDesc(p), p.ResolvedReadOnly())
+	if !pr.askYesNo("Append to "+path, true) {
 		fmt.Fprintln(errW, "dbq: aborted, nothing written")
 		return 1
 	}
@@ -294,7 +322,116 @@ func cmdAdd(errW io.Writer) int {
 	return 0
 }
 
+// cmdEdit updates an existing profile through the same wizard UX as add.
+// Every prompt is prefilled with the current value; Enter keeps it. Secrets
+// are never accepted via argv - only through the hidden prompt.
+func cmdEdit(args []string, errW io.Writer) int {
+	if len(args) < 1 {
+		fmt.Fprintln(errW, "dbq: ERROR: missing <profile> argument")
+		return 1
+	}
+	name := args[0]
+	path, err := dbq.DefaultPath()
+	if err != nil {
+		fmt.Fprintf(errW, "dbq: ERROR: %v\n", err)
+		return 1
+	}
+	cfg, err := dbq.Load(path)
+	if err != nil {
+		fmt.Fprintf(errW, "dbq: ERROR: %v\n", err)
+		return 1
+	}
+	cur, ok := cfg.Profiles[name]
+	if !ok {
+		names := make([]string, 0, len(cfg.Profiles))
+		for n := range cfg.Profiles {
+			names = append(names, n)
+		}
+		sort.Strings(names)
+		fmt.Fprintf(errW, "dbq: ERROR: unknown profile %q (available: %s)\n", name, strings.Join(names, ", "))
+		return 1
+	}
+
+	fmt.Fprintf(errW, "Editing profile %q (Enter keeps the current value)\n", name)
+	pr := newPrompter(errW)
+
+	p, err := promptFields(pr, cur)
+	if err != nil {
+		fmt.Fprintf(errW, "dbq: ERROR: %v\n", err)
+		return 1
+	}
+
+	if p.Type != "sqlite" {
+		curPw := "none"
+		switch {
+		case cur.PasswordEnv != "":
+			curPw = "env:" + cur.PasswordEnv
+		case cur.Password != "":
+			curPw = "inline (hidden)"
+		}
+		fmt.Fprintf(errW, "Password: [1] keep current (%s)  [2] change (hidden prompt)  [3] environment variable  [4] none\n", curPw)
+		switch pr.ask("Choice", "1") {
+		case "2":
+			p.Password = pr.secret("New password")
+			if p.Password == "" {
+				fmt.Fprintln(errW, "dbq: ERROR: password is required for choice 2")
+				return 1
+			}
+		case "3":
+			v := pr.ask("Environment variable name (e.g. DBPASS_PROD)", cur.PasswordEnv)
+			if v == "" || !envNameRe.MatchString(v) {
+				fmt.Fprintf(errW, "dbq: ERROR: invalid env var name %q\n", v)
+				return 1
+			}
+			p.PasswordEnv = v
+		case "4":
+			// credentials explicitly cleared
+		default: // keep current credentials
+			p.Password = cur.Password
+			p.PasswordEnv = cur.PasswordEnv
+		}
+		if p.Type == "postgres" {
+			p.SSLMode = pr.ask("sslmode (empty = driver default)", cur.SSLMode)
+		}
+	}
+
+	ro := pr.askYesNo("Read-only profile", cur.ResolvedReadOnly())
+	p.ReadOnly = &ro
+
+	fmt.Fprintf(errW, "\nSummary: %s  type=%s  %s  password=%s  readonly=%v\n",
+		name, p.Type, summaryAddr(p), passwordDesc(p), p.ResolvedReadOnly())
+	if !pr.askYesNo("Update "+path, true) {
+		fmt.Fprintln(errW, "dbq: aborted, nothing written")
+		return 1
+	}
+	changed, err := dbq.UpdateProfile(path, name, p)
+	if err != nil {
+		fmt.Fprintf(errW, "dbq: ERROR: %v\n", err)
+		return 1
+	}
+	if !changed {
+		fmt.Fprintf(errW, "dbq: profile %q unchanged\n", name)
+		return 0
+	}
+	fmt.Fprintf(errW, "dbq: profile %q updated (%s, mode 600)\n", name, path)
+	fmt.Fprintf(errW, "next: dbq list && dbq ping %s\n", name)
+	return 0
+}
+
 var envNameRe = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
+
+// passwordDesc renders the credential source for wizard summaries without
+// revealing the secret itself.
+func passwordDesc(p dbq.Profile) string {
+	switch {
+	case p.PasswordEnv != "":
+		return "env:" + p.PasswordEnv
+	case p.Password != "":
+		return "inline (hidden)"
+	default:
+		return "none"
+	}
+}
 
 func summaryAddr(p dbq.Profile) string {
 	if p.Type == "sqlite" {

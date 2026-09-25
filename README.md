@@ -47,6 +47,8 @@ force it with `/skill:dbq`. Remove with `pi remove git:github.com/rioliu/dbq`.
 
 ```bash
 dbq add                             # interactive wizard to add a profile
+
+dbq edit <profile>                  # interactive wizard to update a profile
 dbq list                            # show profiles (never shows passwords)
 dbq ping <profile>                  # test connectivity
 
@@ -63,8 +65,9 @@ dbq schema <profile> --format json users
 Exit codes: `0` ok | `1` usage/config | `2` blocked by read-only guard | `3` connection/query error.
 
 Profiles live in `~/.config/dbq/profiles.toml` (mode 600, enforced).
-Add one with `dbq add` (interactive; password is read with echo off, never
-via argv), or edit the file by hand - full procedure: **[SPEC.md](SPEC.md)**.
+Add one with `dbq add` and change an existing one with `dbq edit` - both are
+interactive; secrets are read with echo off, never via argv. Hand-editing
+the file still works - full procedure: **[SPEC.md](SPEC.md)**.
 
 ## Output formats
 
@@ -151,9 +154,9 @@ dbq query mysql_local "UPDATE ..."     # 3. rc=2 -> ask the human, do not retry
 6. **Writes** only on profiles explicitly marked `NO (writable)` in
    `dbq list`, and only when the task requires it; verify with a follow-up
    SELECT.
-7. **Adding/changing profiles is a human task** - `dbq add` is for an
-   interactive terminal. Never pipe a password into it, and never ask an
-   agent to write credentials into the file (SPEC.md).
+7. **Adding/changing profiles is a human task** - `dbq add` and `dbq edit`
+   are for an interactive terminal. Never pipe a password into them, and
+   never ask an agent to write credentials into the file (SPEC.md).
 
 ## Tests
 

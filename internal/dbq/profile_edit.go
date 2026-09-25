@@ -26,14 +26,7 @@ func UpdateProfile(path string, name string, p Profile) (bool, error) {
 	if err := validateName(name); err != nil {
 		return false, err
 	}
-	fi, err := os.Stat(path)
-	if err != nil {
-		return false, err
-	}
-	if fi.Mode().Perm()&0o077 != 0 {
-		return false, fmt.Errorf("insecure permissions on %s (%04o) - run: chmod 600 %s", path, fi.Mode().Perm(), path)
-	}
-	b, err := os.ReadFile(path)
+	b, err := readSecureProfileFile(path)
 	if err != nil {
 		return false, err
 	}
@@ -63,6 +56,19 @@ func UpdateProfile(path string, name string, p Profile) (bool, error) {
 		return false, err
 	}
 	return true, nil
+}
+
+// readSecureProfileFile reads the profile file after refusing group/other
+// accessible permissions - shared by the update/remove paths.
+func readSecureProfileFile(path string) ([]byte, error) {
+	fi, err := os.Stat(path)
+	if err != nil {
+		return nil, err
+	}
+	if fi.Mode().Perm()&0o077 != 0 {
+		return nil, fmt.Errorf("insecure permissions on %s (%04o) - run: chmod 600 %s", path, fi.Mode().Perm(), path)
+	}
+	return os.ReadFile(path)
 }
 
 // replaceProfileBlock splices the rendered newBlock into content, replacing

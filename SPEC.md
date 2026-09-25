@@ -148,6 +148,19 @@ stays mode 600.
 Manual edit of the file remains supported (same permissions and
 never-ask-an-agent rules as above); `dbq edit` is just the friendly path.
 
+## Removing a profile
+
+```bash
+dbq rm <name>        # 'dbq remove' is an alias
+```
+
+Shows the profile summary and asks for confirmation (default **No** - EOF
+or an empty answer aborts, so a stray pipe cannot delete credentials). The
+rewrite removes the profile's section including its attached comment lines,
+keeps `[defaults]`, other profiles and their comments intact, and stays mode
+600. Removing the last profile leaves the file with only the header/defaults
+(`dbq add` works again afterwards).
+
 ## Never-do list
 
 - Never commit `profiles.toml` (add `profiles.toml` to any global gitignore

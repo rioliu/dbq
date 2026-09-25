@@ -49,6 +49,7 @@ force it with `/skill:dbq`. Remove with `pi remove git:github.com/rioliu/dbq`.
 dbq add                             # interactive wizard to add a profile
 
 dbq edit <profile>                  # interactive wizard to update a profile
+dbq rm <profile>                    # remove a profile entry (asks to confirm)
 dbq list                            # show profiles (never shows passwords)
 dbq ping <profile>                  # test connectivity
 
@@ -65,8 +66,8 @@ dbq schema <profile> --format json users
 Exit codes: `0` ok | `1` usage/config | `2` blocked by read-only guard | `3` connection/query error.
 
 Profiles live in `~/.config/dbq/profiles.toml` (mode 600, enforced).
-Add one with `dbq add` and change an existing one with `dbq edit` - both are
-interactive; secrets are read with echo off, never via argv. Hand-editing
+Add one with `dbq add`, change one with `dbq edit`, delete one with `dbq rm`
+- all interactive; secrets are read with echo off, never via argv. Hand-editing
 the file still works - full procedure: **[SPEC.md](SPEC.md)**.
 
 ## Output formats

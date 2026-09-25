@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"syscall"
 	"testing"
 	"time"
@@ -29,6 +30,7 @@ func TestInteractiveWizardsQuitOnSIGINT(t *testing.T) {
 	}{
 		{"add", []string{"add"}},
 		{"edit", []string{"edit", "x"}},
+		{"rm", []string{"rm", "x"}},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -75,6 +77,55 @@ func TestInteractiveWizardsQuitOnSIGINT(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestRemoveProfileCommand covers the confirmation flow: without an answer
+// nothing must be removed; with 'y' the entry is deleted.
+func TestRemoveProfileCommand(t *testing.T) {
+	bin := buildBinary(t)
+	fixture := "[profiles.keep]\ntype = 'sqlite'\npath = '/keep.db'\nreadonly = true\n\n[profiles.gone]\ntype = 'sqlite'\npath = '/gone.db'\nreadonly = true\n"
+
+	writeFixture := func(t *testing.T) string {
+		t.Helper()
+		p := filepath.Join(t.TempDir(), "profiles.toml")
+		if err := os.WriteFile(p, []byte(fixture), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		return p
+	}
+	run := func(profiles, stdin string) error {
+		cmd := exec.Command(bin, "rm", "gone")
+		cmd.Stdin = strings.NewReader(stdin)
+		cmd.Stdout = io.Discard
+		cmd.Stderr = io.Discard
+		cmd.Env = append(os.Environ(), "DBQ_PROFILES="+profiles)
+		return cmd.Run()
+	}
+
+	t.Run("refused without confirmation", func(t *testing.T) {
+		p := writeFixture(t)
+		if err := run(p, ""); err == nil { // EOF -> default No
+			t.Fatal("want non-zero exit when confirmation is declined")
+		}
+		b, _ := os.ReadFile(p)
+		if !strings.Contains(string(b), "[profiles.gone]") {
+			t.Fatalf("profile removed without confirmation:\n%s", b)
+		}
+	})
+
+	t.Run("confirmed with y", func(t *testing.T) {
+		p := writeFixture(t)
+		if err := run(p, "y\n"); err != nil {
+			t.Fatalf("rm: %v", err)
+		}
+		b, _ := os.ReadFile(p)
+		if strings.Contains(string(b), "[profiles.gone]") {
+			t.Fatalf("profile not removed:\n%s", b)
+		}
+		if !strings.Contains(string(b), "[profiles.keep]") {
+			t.Fatalf("other profile lost:\n%s", b)
+		}
+	})
 }
 
 func buildBinary(t *testing.T) string {

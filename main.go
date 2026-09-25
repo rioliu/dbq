@@ -3,6 +3,7 @@
 //	dbq list                     show configured profiles
 //	dbq add                      interactive wizard to add a profile
 //	dbq edit <profile>           interactively update an existing profile
+//	dbq rm <profile>              remove a profile entry
 //	dbq ping <profile>           test connectivity
 //	dbq query <profile> [flags] <sql...> | -    run a query ('-' = stdin)
 //	dbq schema <profile> [flags] [table]        list tables / columns
@@ -32,11 +33,14 @@ import (
 
 func main() {
 	args := os.Args[1:]
-	// Interactive wizards keep the default SIGINT disposition: registering
+	// Interactive commands keep the default SIGINT disposition: registering
 	// a handler would swallow Ctrl+C while a prompt blocks on stdin, and
 	// the blocked read cannot be interrupted - the user could not quit.
-	if len(args) > 0 && (args[0] == "add" || args[0] == "edit") {
-		os.Exit(run(context.Background(), args, os.Stdout, os.Stderr))
+	if len(args) > 0 {
+		switch args[0] {
+		case "add", "edit", "rm", "remove":
+			os.Exit(run(context.Background(), args, os.Stdout, os.Stderr))
+		}
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
@@ -48,6 +52,7 @@ const usageText = `dbq - multi-database query CLI with guarded cred profiles
 Usage:
   dbq add                          Interactive wizard to add a profile
   dbq edit <profile>               Interactively update an existing profile
+  dbq rm <profile>                  Remove a profile entry (asks to confirm)
   dbq list                          List profiles (never shows passwords)
   dbq ping <profile>                Test connectivity
   dbq query <profile> [--format table|json|csv] [--limit N] <sql...>
@@ -77,6 +82,8 @@ func run(ctx context.Context, argv []string, out, errW io.Writer) int {
 		return cmdAdd(errW)
 	case "edit":
 		return cmdEdit(argv[1:], errW)
+	case "rm", "remove":
+		return cmdRm(argv[1:], errW)
 	case "ping":
 		return withProfile(argv[1:], errW, func(p dbq.Profile, name string) int {
 			start := time.Now()
@@ -127,6 +134,33 @@ func lookupProfile(errW io.Writer, name string) (dbq.Profile, int) {
 		return dbq.Profile{}, 1
 	}
 	return p, 0
+}
+
+// loadProfileCfg resolves name against the profile file for the profile
+// management commands (edit/rm). Returns config, profile and path; code != 0
+// means the error was already reported.
+func loadProfileCfg(errW io.Writer, name string) (*dbq.Config, dbq.Profile, string, int) {
+	path, err := dbq.DefaultPath()
+	if err != nil {
+		fmt.Fprintf(errW, "dbq: ERROR: %v\n", err)
+		return nil, dbq.Profile{}, "", 1
+	}
+	cfg, err := dbq.Load(path)
+	if err != nil {
+		fmt.Fprintf(errW, "dbq: ERROR: %v\n", err)
+		return nil, dbq.Profile{}, "", 1
+	}
+	p, ok := cfg.Profiles[name]
+	if !ok {
+		names := make([]string, 0, len(cfg.Profiles))
+		for n := range cfg.Profiles {
+			names = append(names, n)
+		}
+		sort.Strings(names)
+		fmt.Fprintf(errW, "dbq: ERROR: unknown profile %q (available: %s)\n", name, strings.Join(names, ", "))
+		return nil, dbq.Profile{}, "", 1
+	}
+	return cfg, p, path, 0
 }
 
 // withProfile resolves <profile> as the first argument then invokes fn.
@@ -338,25 +372,9 @@ func cmdEdit(args []string, errW io.Writer) int {
 		return 1
 	}
 	name := args[0]
-	path, err := dbq.DefaultPath()
-	if err != nil {
-		fmt.Fprintf(errW, "dbq: ERROR: %v\n", err)
-		return 1
-	}
-	cfg, err := dbq.Load(path)
-	if err != nil {
-		fmt.Fprintf(errW, "dbq: ERROR: %v\n", err)
-		return 1
-	}
-	cur, ok := cfg.Profiles[name]
-	if !ok {
-		names := make([]string, 0, len(cfg.Profiles))
-		for n := range cfg.Profiles {
-			names = append(names, n)
-		}
-		sort.Strings(names)
-		fmt.Fprintf(errW, "dbq: ERROR: unknown profile %q (available: %s)\n", name, strings.Join(names, ", "))
-		return 1
+	_, cur, path, code := loadProfileCfg(errW, name)
+	if code != 0 {
+		return code
 	}
 
 	fmt.Fprintf(errW, "Editing profile %q (Enter keeps the current value)\n", name)
@@ -426,6 +444,38 @@ func cmdEdit(args []string, errW io.Writer) int {
 }
 
 var envNameRe = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
+
+// cmdRm removes a profile entry after explicit confirmation (default no):
+// deleting credentials is destructive, so EOF/an empty answer must not
+// remove anything.
+func cmdRm(args []string, errW io.Writer) int {
+	if len(args) < 1 {
+		fmt.Fprintln(errW, "dbq: ERROR: missing <profile> argument")
+		return 1
+	}
+	name := args[0]
+	cfg, p, path, code := loadProfileCfg(errW, name)
+	if code != 0 {
+		return code
+	}
+
+	pr := newPrompter(errW)
+	fmt.Fprintf(errW, "Profile %q: type=%s %s (%d profile(s) in file)\n",
+		name, p.Type, p.Address(), len(cfg.Profiles))
+	if !pr.askYesNo("Remove "+name+" from "+path, false) {
+		fmt.Fprintln(errW, "dbq: aborted, nothing written")
+		return 1
+	}
+	if err := dbq.RemoveProfile(path, name); err != nil {
+		fmt.Fprintf(errW, "dbq: ERROR: %v\n", err)
+		return 1
+	}
+	fmt.Fprintf(errW, "dbq: profile %q removed (%s, mode 600)\n", name, path)
+	if len(cfg.Profiles) == 1 {
+		fmt.Fprintln(errW, "dbq: note: no profiles left - add one with dbq add")
+	}
+	return 0
+}
 
 // passwordDesc renders the credential source for wizard summaries without
 // revealing the secret itself.

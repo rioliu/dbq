@@ -1,0 +1,14 @@
+# built binaries
+/dbq
+/bin/
+
+# credentials must never enter this repo (see SPEC.md)
+profiles.toml
+*.env
+
+# local databases
+*.db
+*.sqlite
+
+# OS noise
+.DS_Store

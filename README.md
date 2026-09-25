@@ -18,6 +18,20 @@ go build -o ~/.local/bin/dbq .
 
 `~/.local/bin` is already on PATH.
 
+### Use with Pi Agent
+
+This repository doubles as a [Pi](https://pi.dev) package that ships the
+`dbq` skill (commands, exit-code rules, credential hygiene) so the agent
+picks up DB workflows automatically:
+
+```bash
+pi install git:github.com/rioliu/dbq          # personal install
+pi install git:github.com/rioliu/dbq@v0.1.0   # pinned to a tag
+```
+
+Then `/reload` (or start a new session) and the skill appears as `dbq`;
+force it with `/skill:dbq`. Remove with `pi remove git:github.com/rioliu/dbq`.
+
 ## Commands
 
 ```bash

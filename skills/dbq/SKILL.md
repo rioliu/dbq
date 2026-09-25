@@ -28,6 +28,7 @@ dbq schema <profile>                  # list tables
 dbq schema <profile> users            # columns of one table
 
 dbq add                               # HUMAN ONLY: interactive profile wizard
+dbq edit <profile>                    # HUMAN ONLY: interactive update wizard
 ```
 
 Output goes to stdout; metadata, warnings, and truncation notices go to
@@ -48,7 +49,7 @@ stderr. Prefer `--format json` when the result will be processed.
    never print values of `password_env` variables; do not run `env`/`printenv`
    hunting for them. If a secret appears in output, do not repeat it.
 2. **Profiles are human-managed.** Adding/changing credentials is done by the
-   human via `dbq add` or a terminal editor - never by writing the file
+   human via `dbq add` / `dbq edit` or a terminal editor - never by writing the file
    yourself, never by piping secrets into commands.
 3. **Default posture is read-only.** A guard (statement guard + engine-level
    read-only transaction) rejects writes with rc=2. Treat that as a hard

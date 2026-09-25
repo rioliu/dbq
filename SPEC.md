@@ -132,6 +132,22 @@ The wizard refuses duplicate names and insecure existing files.
 5. Optional hygiene: prefer `password_env` if other people/processes share
    the machine, and export it from a shell rc file that agents do not source.
 
+## Updating an existing profile
+
+```bash
+dbq edit <name>
+```
+
+Interactive, same rules as the add wizard: every prompt is prefilled with
+the current value (Enter keeps it), secrets are read from the terminal with
+echo disabled - never from argv. The rewrite touches only the lines whose
+value changed; comments, `[defaults]`, other profiles and keys dbq does not
+manage (`max_rows`, `timeout_seconds`, ...) are preserved, and the file
+stays mode 600.
+
+Manual edit of the file remains supported (same permissions and
+never-ask-an-agent rules as above); `dbq edit` is just the friendly path.
+
 ## Never-do list
 
 - Never commit `profiles.toml` (add `profiles.toml` to any global gitignore

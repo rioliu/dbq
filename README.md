@@ -1,7 +1,18 @@
-# dbq
+<p align="center">
+  <img src="assets/logo.svg" alt="dbq" width="96">
+</p>
 
-Minimal multi-database CLI: **cred profiles in, query results out**.
-Single binary, no external DB clients (mysql/psql/sqlcmd), no daemon, no MCP.
+<h1 align="center">dbq</h1>
+
+<p align="center">
+  Minimal multi-database CLI: <b>cred profiles in, query results out</b>.<br>
+  Single binary, no external DB clients (mysql/psql/sqlcmd), no daemon, no MCP.
+</p>
+
+<p align="center">
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="MIT license"></a>
+  <a href="https://pkg.go.dev/github.com/rioliu/dbq"><img src="https://pkg.go.dev/badge/github.com/rioliu/dbq.svg" alt="Go Reference"></a>
+</p>
 
 Supported engines: `mysql`, `postgres`, `sqlserver`, `oracle`, `sqlite`.
 

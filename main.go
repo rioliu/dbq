@@ -31,9 +31,16 @@ import (
 )
 
 func main() {
+	args := os.Args[1:]
+	// Interactive wizards keep the default SIGINT disposition: registering
+	// a handler would swallow Ctrl+C while a prompt blocks on stdin, and
+	// the blocked read cannot be interrupted - the user could not quit.
+	if len(args) > 0 && (args[0] == "add" || args[0] == "edit") {
+		os.Exit(run(context.Background(), args, os.Stdout, os.Stderr))
+	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
-	os.Exit(run(ctx, os.Args[1:], os.Stdout, os.Stderr))
+	os.Exit(run(ctx, args, os.Stdout, os.Stderr))
 }
 
 const usageText = `dbq - multi-database query CLI with guarded cred profiles

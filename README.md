@@ -18,6 +18,10 @@ Supported engines: `mysql`, `postgres`, `sqlserver`, `oracle`, `sqlite`.
 
 ## Build & install
 
+Prebuilt binaries for Linux / macOS / Windows (amd64, arm64): download from
+[Releases](https://github.com/rioliu/dbq/releases/latest) and verify against
+the attached `checksums.txt`.
+
 ```bash
 go install github.com/rioliu/dbq@latest     # requires Go >= 1.26
 

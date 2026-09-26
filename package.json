@@ -1,6 +1,6 @@
 {
   "name": "dbq",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Pi Agent package for dbq: guarded multi-database access (skill + docs)",
   "keywords": ["pi-package", "database", "cli", "security", "readonly"],
   "license": "MIT",

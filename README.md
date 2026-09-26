@@ -23,6 +23,8 @@ Prebuilt binaries for Linux / macOS / Windows (amd64, arm64): download from
 the attached `checksums.txt`.
 
 ```bash
+brew install rioliu/tap/dbq                # Homebrew (macOS/Linux, prebuilt)
+
 go install github.com/rioliu/dbq@latest     # requires Go >= 1.26
 
 # or from source

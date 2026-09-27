@@ -12,6 +12,7 @@
 <p align="center">
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="MIT license"></a>
   <a href="https://pkg.go.dev/github.com/rioliu/dbq"><img src="https://pkg.go.dev/badge/github.com/rioliu/dbq.svg" alt="Go Reference"></a>
+  <a href="https://rioliu.github.io/dbq/"><img src="https://img.shields.io/badge/website-rioliu.github.io%2Fdbq-2dd4bf" alt="Website"></a>
 </p>
 
 Supported engines: `mysql`, `postgres`, `sqlserver`, `oracle`, `sqlite`.

@@ -7,6 +7,7 @@
 //	dbq ping <profile>           test connectivity
 //	dbq query <profile> [flags] <sql...> | -    run a query ('-' = stdin)
 //	dbq schema <profile> [flags] [table]        list tables / columns
+//	dbq --version                      show version
 //
 // Exit codes: 0 ok, 1 usage/config, 2 statement guard, 3 connection/query error.
 package main
@@ -30,6 +31,11 @@ import (
 	"github.com/rioliu/dbq/internal/dbq"
 	"golang.org/x/term"
 )
+
+// version is the CLI version reported by --version. Overridden at build
+// time via -ldflags "-X main.version=..." (Makefile, release workflow);
+// "dev" means a plain local build without injected metadata.
+var version = "dev"
 
 func main() {
 	args := os.Args[1:]
@@ -60,6 +66,7 @@ Usage:
   dbq schema <profile> [--format ...] [table]
                                     List tables, or columns of one table
   dbq help                          Show this help
+  dbq --version                     Show version
 
 Profiles: see SPEC.md. Default location: ~/.config/dbq/profiles.toml
           ($DBQ_PROFILES overrides). File must be chmod 600.
@@ -75,6 +82,9 @@ func run(ctx context.Context, argv []string, out, errW io.Writer) int {
 	switch argv[0] {
 	case "help", "-h", "--help":
 		fmt.Fprint(out, usageText)
+		return 0
+	case "version", "--version", "-V":
+		fmt.Fprintf(out, "dbq %s\n", version)
 		return 0
 	case "list":
 		return cmdList(out, errW)

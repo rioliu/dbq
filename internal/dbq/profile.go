@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"strings"
 
 	"github.com/BurntSushi/toml"
 )
@@ -30,10 +31,12 @@ type Profile struct {
 	User           string `toml:"user"`
 	Password       string `toml:"password"`
 	PasswordEnv    string `toml:"password_env"`
-	Database       string `toml:"database"` // service name for oracle
-	SID            string `toml:"sid"`      // alternative to database for oracle
-	Path           string `toml:"path"`     // sqlite file
-	SSLMode        string `toml:"sslmode"`  // postgres only
+	Database       string `toml:"database"`        // service name for oracle
+	SID            string `toml:"sid"`             // alternative to database for oracle
+	Path           string `toml:"path"`            // sqlite file
+	SSLMode        string `toml:"sslmode"`         // postgres only
+	TLSMinVersion  string `toml:"tls_min_version"` // sqlserver only: 1.0|1.1|1.2|1.3
+	Encrypt        string `toml:"encrypt"`         // sqlserver only: disable|optional|mandatory|strict
 	ReadOnly       *bool  `toml:"readonly"`
 	MaxRows        int    `toml:"max_rows"`
 	TimeoutSeconds int    `toml:"timeout_seconds"`
@@ -104,6 +107,22 @@ func validateAndBake(name string, p Profile, d *Defaults, out *Profile) error {
 	if p.Password != "" && p.PasswordEnv != "" {
 		return fmt.Errorf("profile %q: set password or password_env, not both", name)
 	}
+	if p.TLSMinVersion != "" {
+		if p.Type != "sqlserver" {
+			return fmt.Errorf("profile %q: tls_min_version is only valid for sqlserver profiles", name)
+		}
+		if err := ValidateTLSMinVersion(p.TLSMinVersion); err != nil {
+			return fmt.Errorf("profile %q: %w", name, err)
+		}
+	}
+	if p.Encrypt != "" {
+		if p.Type != "sqlserver" {
+			return fmt.Errorf("profile %q: encrypt is only valid for sqlserver profiles", name)
+		}
+		if err := ValidateEncrypt(p.Encrypt); err != nil {
+			return fmt.Errorf("profile %q: %w", name, err)
+		}
+	}
 
 	switch p.Type {
 	case "sqlite":
@@ -143,6 +162,28 @@ func validateAndBake(name string, p Profile, d *Defaults, out *Profile) error {
 		out.TimeoutSeconds = d.TimeoutSeconds
 	}
 	return nil
+}
+
+// ValidateTLSMinVersion checks an optional sqlserver minimum TLS version.
+// Empty means the driver default. Values map to the driver's tlsmin DSN
+// parameter; unknown values would silently fall back to the default, so we
+// reject them instead.
+func ValidateTLSMinVersion(v string) error {
+	switch v {
+	case "", "1.0", "1.1", "1.2", "1.3":
+		return nil
+	}
+	return fmt.Errorf("invalid tls_min_version %q (want 1.0|1.1|1.2|1.3 or empty)", v)
+}
+
+// ValidateEncrypt checks an optional sqlserver encrypt mode (maps to the
+// driver's encrypt DSN parameter). Empty means the driver default.
+func ValidateEncrypt(v string) error {
+	switch strings.ToLower(v) {
+	case "", "disable", "optional", "mandatory", "strict":
+		return nil
+	}
+	return fmt.Errorf("invalid encrypt %q (want disable|optional|mandatory|strict or empty)", v)
 }
 
 func (p Profile) ResolvedReadOnly() bool {

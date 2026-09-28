@@ -33,6 +33,10 @@ database = "appdb"             # required: mysql/postgres/sqlserver; oracle = se
 # sid = "ORCL"                 # oracle alternative to database
 # path = "/data/dev.db"        # sqlite only
 # sslmode = "require"          # postgres only
+# tls_min_version = "1.0"      # sqlserver only: minimum TLS version (1.0|1.1|1.2|1.3),
+                              # for legacy servers that only offer TLS 1.0; empty = driver default (1.2)
+# encrypt = "disable"          # sqlserver only: disable|optional|mandatory|strict;
+                              # disable = plaintext (matches servers with Force Encryption off)
 readonly = true                # default true; false = writable (see below)
 max_rows = 500                 # optional per-profile override
 timeout_seconds = 15           # optional per-profile override
@@ -60,7 +64,7 @@ Set `password` **or** `password_env`, never both (dbq rejects both).
 |---|---|---|
 | `mysql` | host, database | user/password as available |
 | `postgres` | host, database | `sslmode` optional |
-| `sqlserver` | host, database | database = catalog |
+| `sqlserver` | host, database | database = catalog; `tls_min_version` / `encrypt` optional (legacy servers) |
 | `sqlite` | path | no credentials |
 | `oracle` | host + (`database` = service name **or** `sid`) | schema exploration uses `user_*` views of the login user |
 

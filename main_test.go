@@ -2,6 +2,7 @@ package main
 
 import (
 	"bufio"
+	"context"
 	"io"
 	"os"
 	"os/exec"
@@ -129,6 +130,22 @@ func TestRemoveProfileCommand(t *testing.T) {
 			t.Fatalf("other profile lost:\n%s", b)
 		}
 	})
+}
+
+// TestVersionFlag verifies dbq --version prints the version and exits 0,
+// without touching the profile file.
+func TestVersionFlag(t *testing.T) {
+	for _, arg := range []string{"--version", "version", "-V"} {
+		t.Run(arg, func(t *testing.T) {
+			var out, errOut strings.Builder
+			if code := run(context.Background(), []string{arg}, &out, &errOut); code != 0 {
+				t.Fatalf("exit code = %d, want 0 (stderr: %s)", code, errOut.String())
+			}
+			if got := strings.TrimSpace(out.String()); got != "dbq "+version {
+				t.Fatalf("output = %q, want %q", got, "dbq "+version)
+			}
+		})
+	}
 }
 
 // promptFromScript builds a prompter reading scripted stdin lines.

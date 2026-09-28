@@ -1,11 +1,14 @@
 BINARY := dbq
 GO ?= go
 PREFIX ?= $(HOME)/.local
+# version baked into the binary (dbq --version); git describe when available
+VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
+LDFLAGS := -s -w -X main.version=$(VERSION)
 
 .PHONY: build test lint fmt fmt-check vet install clean cleanup
 
 build:
-	$(GO) build -o bin/$(BINARY) .
+	$(GO) build -trimpath -ldflags "$(LDFLAGS)" -o bin/$(BINARY) .
 
 test:
 	$(GO) test ./...

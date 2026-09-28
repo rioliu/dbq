@@ -293,6 +293,18 @@ func promptFields(pr *prompter, def dbq.Profile) (dbq.Profile, error) {
 		}
 	}
 	p.User = pr.ask("User", def.User)
+	if p.Type == "sqlserver" {
+		v := pr.ask("TLS min version (1.0|1.1|1.2|1.3, empty = driver default)", def.TLSMinVersion)
+		if err := dbq.ValidateTLSMinVersion(v); err != nil {
+			return p, err
+		}
+		p.TLSMinVersion = v
+		v = pr.ask("Encrypt (disable|optional|mandatory|strict, empty = driver default)", def.Encrypt)
+		if err := dbq.ValidateEncrypt(v); err != nil {
+			return p, err
+		}
+		p.Encrypt = v
+	}
 	return p, nil
 }
 

@@ -52,3 +52,45 @@ func TestMySQLConfigDialTimeout(t *testing.T) {
 		t.Fatalf("dial timeout = %v, want 7s", cfg.Timeout)
 	}
 }
+
+func TestSQLServerDSNTLSMin(t *testing.T) {
+	p := dbq.Profile{Type: "sqlserver", Host: "192.168.21.102", Port: 1433,
+		Database: "jotmanager", User: "u", Password: "pw", TLSMinVersion: "1.0"}
+	dsn, err := dbq.SQLServerDSN(p)
+	if err != nil {
+		t.Fatalf("SQLServerDSN: %v", err)
+	}
+	if !strings.Contains(dsn, "tlsmin=1.0") {
+		t.Fatalf("DSN missing tlsmin=1.0: %s", dsn)
+	}
+	if !strings.Contains(dsn, "database=jotmanager") {
+		t.Fatalf("DSN missing database: %s", dsn)
+	}
+
+	// Default (empty) must not set tlsmin - driver default applies.
+	p.TLSMinVersion = ""
+	dsn, err = dbq.SQLServerDSN(p)
+	if err != nil {
+		t.Fatalf("SQLServerDSN: %v", err)
+	}
+	if strings.Contains(dsn, "tlsmin") {
+		t.Fatalf("unexpected tlsmin in DSN: %s", dsn)
+	}
+}
+
+func TestSQLServerDSNEncrypt(t *testing.T) {
+	p := dbq.Profile{Type: "sqlserver", Host: "h", Port: 1433,
+		Database: "d", User: "u", Password: "pw", Encrypt: "disable"}
+	dsn, err := dbq.SQLServerDSN(p)
+	if err != nil {
+		t.Fatalf("SQLServerDSN: %v", err)
+	}
+	if !strings.Contains(dsn, "encrypt=disable") {
+		t.Fatalf("DSN missing encrypt=disable: %s", dsn)
+	}
+	p.Encrypt = ""
+	dsn, _ = dbq.SQLServerDSN(p)
+	if strings.Contains(dsn, "encrypt=") {
+		t.Fatalf("unexpected encrypt in DSN: %s", dsn)
+	}
+}

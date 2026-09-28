@@ -172,6 +172,56 @@ func TestAppendProfileRejectsBadName(t *testing.T) {
 	}
 }
 
+func sqlserverTLSProfile(tlsMin string) dbq.Profile {
+	return dbq.Profile{Type: "sqlserver", Host: "192.168.21.102", Port: 1433,
+		User: "agent_ro", Password: "pw", Database: "jotmanager", TLSMinVersion: tlsMin}
+}
+
+func TestBuildProfileBlockTLSMinVersion(t *testing.T) {
+	block := dbq.BuildProfileBlock("mssql", sqlserverTLSProfile("1.0"))
+	if !strings.Contains(block, "tls_min_version = '1.0'") {
+		t.Fatalf("missing tls_min_version line:\n%s", block)
+	}
+	var cfg dbq.Config
+	if _, err := toml.Decode(block, &cfg); err != nil {
+		t.Fatalf("block does not parse: %v", err)
+	}
+	if got := cfg.Profiles["mssql"].TLSMinVersion; got != "1.0" {
+		t.Fatalf("round-trip TLSMinVersion = %q, want 1.0", got)
+	}
+
+	block = dbq.BuildProfileBlock("mssql", sqlserverTLSProfile(""))
+	if strings.Contains(block, "tls_min_version") {
+		t.Fatalf("unexpected tls_min_version line:\n%s", block)
+	}
+}
+
+func TestAppendProfileTLSMinVersionValidation(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "profiles.toml")
+	if err := dbq.AppendProfile(path, "mssql", sqlserverTLSProfile("1.0")); err != nil {
+		t.Fatalf("valid tls_min_version=1.0 rejected: %v", err)
+	}
+	for i, bad := range []string{"2.0", "1", "tls1.2", "TLSv1.2"} {
+		name := "mssqld" + string(rune('a'+i))
+		if err := dbq.AppendProfile(path, name, sqlserverTLSProfile(bad)); err == nil {
+			t.Errorf("tls_min_version %q must be rejected", bad)
+		}
+	}
+	// other engines do not use tls_min_version
+	my := dbq.Profile{Type: "mysql", Host: "h", Database: "d", User: "u", Password: "p", TLSMinVersion: "1.0"}
+	if err := dbq.AppendProfile(path, "my-tls", my); err == nil {
+		t.Error("tls_min_version on mysql must be rejected")
+	}
+
+	cfg, err := dbq.Load(path)
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	if got := cfg.Profiles["mssql"].TLSMinVersion; got != "1.0" {
+		t.Fatalf("loaded TLSMinVersion = %q, want 1.0", got)
+	}
+}
+
 func TestAppendProfileValidatesProfile(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "profiles.toml")
 	// mysql without host
@@ -180,5 +230,54 @@ func TestAppendProfileValidatesProfile(t *testing.T) {
 	}
 	if _, err := os.Stat(path); !os.IsNotExist(err) {
 		t.Fatal("file must not be created for invalid profiles")
+	}
+}
+
+func sqlserverEncryptProfile(enc string) dbq.Profile {
+	p := sqlserverTLSProfile("")
+	p.Encrypt = enc
+	return p
+}
+
+func TestBuildProfileBlockEncrypt(t *testing.T) {
+	block := dbq.BuildProfileBlock("mssql", sqlserverEncryptProfile("disable"))
+	if !strings.Contains(block, "encrypt = 'disable'") {
+		t.Fatalf("missing encrypt line:\n%s", block)
+	}
+	var cfg dbq.Config
+	if _, err := toml.Decode(block, &cfg); err != nil {
+		t.Fatalf("block does not parse: %v", err)
+	}
+	if got := cfg.Profiles["mssql"].Encrypt; got != "disable" {
+		t.Fatalf("round-trip Encrypt = %q, want disable", got)
+	}
+	block = dbq.BuildProfileBlock("mssql", sqlserverEncryptProfile(""))
+	if strings.Contains(block, "encrypt =") {
+		t.Fatalf("unexpected encrypt line:\n%s", block)
+	}
+}
+
+func TestAppendProfileEncryptValidation(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "profiles.toml")
+	if err := dbq.AppendProfile(path, "mssql", sqlserverEncryptProfile("disable")); err != nil {
+		t.Fatalf("valid encrypt=disable rejected: %v", err)
+	}
+	for i, bad := range []string{"yes", "plaintext", "off", "true"} {
+		name := "enc" + string(rune('a'+i))
+		if err := dbq.AppendProfile(path, name, sqlserverEncryptProfile(bad)); err == nil {
+			t.Errorf("encrypt %q must be rejected", bad)
+		}
+	}
+	// other engines do not use encrypt
+	my := dbq.Profile{Type: "mysql", Host: "h", Database: "d", User: "u", Password: "p", Encrypt: "disable"}
+	if err := dbq.AppendProfile(path, "my-enc", my); err == nil {
+		t.Error("encrypt on mysql must be rejected")
+	}
+	cfg, err := dbq.Load(path)
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	if got := cfg.Profiles["mssql"].Encrypt; got != "disable" {
+		t.Fatalf("loaded Encrypt = %q, want disable", got)
 	}
 }

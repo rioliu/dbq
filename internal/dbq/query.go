@@ -45,15 +45,7 @@ func OpenDB(p Profile) (*sql.DB, error) {
 		}
 		driver, dsn = "pgx", u.String()
 	case DialectSQLServer:
-		u := url.URL{
-			Scheme: "sqlserver",
-			User:   url.UserPassword(p.User, pass),
-			Host:   fmt.Sprintf("%s:%d", p.Host, orDefault(p.Port, 1433)),
-		}
-		q := url.Values{}
-		q.Set("database", p.Database)
-		u.RawQuery = q.Encode()
-		driver, dsn = "sqlserver", u.String()
+		driver, dsn = "sqlserver", sqlserverDSN(p, pass)
 	case DialectOracle:
 		u := url.URL{
 			Scheme: "oracle",
@@ -77,6 +69,36 @@ func OpenDB(p Profile) (*sql.DB, error) {
 	}
 	db.SetMaxOpenConns(2)
 	return db, nil
+}
+
+// SQLServerDSN exposes the sqlserver DSN for a profile (used by tests).
+func SQLServerDSN(p Profile) (string, error) {
+	pass, err := p.ResolvePassword()
+	if err != nil {
+		return "", err
+	}
+	return sqlserverDSN(p, pass), nil
+}
+
+// sqlserverDSN builds the sqlserver:// URL. tls_min_version maps to the
+// driver's tlsmin parameter - needed for legacy servers that only offer
+// TLS 1.0, which the driver's default minimum (TLS 1.2) would reject.
+func sqlserverDSN(p Profile, pass string) string {
+	u := url.URL{
+		Scheme: "sqlserver",
+		User:   url.UserPassword(p.User, pass),
+		Host:   fmt.Sprintf("%s:%d", p.Host, orDefault(p.Port, 1433)),
+	}
+	q := url.Values{}
+	q.Set("database", p.Database)
+	if p.TLSMinVersion != "" {
+		q.Set("tlsmin", p.TLSMinVersion)
+	}
+	if p.Encrypt != "" {
+		q.Set("encrypt", p.Encrypt)
+	}
+	u.RawQuery = q.Encode()
+	return u.String()
 }
 
 // MySQLConfig exposes the driver config for a profile (used by tests).

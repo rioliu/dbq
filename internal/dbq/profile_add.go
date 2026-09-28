@@ -128,6 +128,12 @@ func BuildProfileBlock(name string, p Profile) string {
 	if p.SSLMode != "" {
 		fmt.Fprintf(&b, "sslmode = %s\n", tomlString(p.SSLMode))
 	}
+	if p.TLSMinVersion != "" {
+		fmt.Fprintf(&b, "tls_min_version = %s\n", tomlString(p.TLSMinVersion))
+	}
+	if p.Encrypt != "" {
+		fmt.Fprintf(&b, "encrypt = %s\n", tomlString(p.Encrypt))
+	}
 	// Always explicit: readers (human or agent) must see the posture.
 	fmt.Fprintf(&b, "readonly = %t\n", p.ResolvedReadOnly())
 	return b.String()

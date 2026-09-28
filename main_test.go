@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bufio"
 	"io"
 	"os"
 	"os/exec"
@@ -9,6 +10,8 @@ import (
 	"syscall"
 	"testing"
 	"time"
+
+	"github.com/rioliu/dbq/internal/dbq"
 )
 
 // TestInteractiveWizardsQuitOnSIGINT verifies that Ctrl+C (SIGINT) terminates
@@ -128,6 +131,38 @@ func TestRemoveProfileCommand(t *testing.T) {
 	})
 }
 
+// promptFromScript builds a prompter reading scripted stdin lines.
+func promptFromScript(script string) *prompter {
+	return &prompter{in: bufio.NewReader(strings.NewReader(script)), errW: io.Discard}
+}
+
+func TestPromptFieldsSQLServerTLSMinVersion(t *testing.T) {
+	// add flow: type, host, port, database, user, tls min version
+	p, err := promptFields(promptFromScript("sqlserver\n192.168.21.102\n1433\njotmanager\nu\n1.0\n"), dbq.Profile{})
+	if err != nil {
+		t.Fatalf("promptFields: %v", err)
+	}
+	if p.TLSMinVersion != "1.0" {
+		t.Fatalf("TLSMinVersion = %q, want 1.0", p.TLSMinVersion)
+	}
+
+	// invalid value must fail
+	if _, err := promptFields(promptFromScript("sqlserver\nh\n1433\ndb\nu\n2.0\n"), dbq.Profile{}); err == nil {
+		t.Fatal("invalid tls_min_version must be rejected")
+	}
+
+	// edit flow: Enter keeps the current value
+	cur := dbq.Profile{Type: "sqlserver", Host: "h", Port: 1433, Database: "db",
+		User: "u", TLSMinVersion: "1.2"}
+	p, err = promptFields(promptFromScript("\n\n\n\n\n\n"), cur)
+	if err != nil {
+		t.Fatalf("promptFields: %v", err)
+	}
+	if p.TLSMinVersion != "1.2" {
+		t.Fatalf("TLSMinVersion = %q, want kept 1.2", p.TLSMinVersion)
+	}
+}
+
 func buildBinary(t *testing.T) string {
 	t.Helper()
 	bin := filepath.Join(t.TempDir(), "dbq-test-bin")
@@ -136,4 +171,18 @@ func buildBinary(t *testing.T) string {
 		t.Fatalf("go build: %v\n%s", err, out)
 	}
 	return bin
+}
+
+func TestPromptFieldsSQLServerEncrypt(t *testing.T) {
+	// type, host, port, database, user, tls(min), encrypt
+	p, err := promptFields(promptFromScript("sqlserver\nh\n1433\ndb\nu\n\ndisable\n"), dbq.Profile{})
+	if err != nil {
+		t.Fatalf("promptFields: %v", err)
+	}
+	if p.Encrypt != "disable" {
+		t.Fatalf("Encrypt = %q, want disable", p.Encrypt)
+	}
+	if _, err := promptFields(promptFromScript("sqlserver\nh\n1433\ndb\nu\n\nplaintext\n"), dbq.Profile{}); err == nil {
+		t.Fatal("invalid encrypt value must be rejected")
+	}
 }

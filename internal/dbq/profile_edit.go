@@ -15,7 +15,8 @@ import (
 var managedKeys = map[string]bool{
 	"type": true, "host": true, "port": true, "user": true,
 	"password": true, "password_env": true, "database": true,
-	"sid": true, "path": true, "sslmode": true, "readonly": true,
+	"sid": true, "path": true, "sslmode": true, "tls_min_version": true,
+	"encrypt": true, "readonly": true,
 }
 
 // UpdateProfile rewrites the [profiles.<name>] block in place. Only lines

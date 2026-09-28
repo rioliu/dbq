@@ -237,3 +237,78 @@ func TestUpdateProfileRejectsBadName(t *testing.T) {
 		}
 	}
 }
+
+const mssqlProfiles = `[profiles.mssql]
+type = 'sqlserver'
+host = '192.168.21.102'
+port = 1433
+user = 'agent_ro'
+password = 'pw'
+database = 'jotmanager'
+tls_min_version = '1.0'
+readonly = true
+`
+
+func TestUpdateProfileTLSMinVersionManagedKey(t *testing.T) {
+	path := writeProfiles(t, mssqlProfiles, 0o600)
+	p := dbq.Profile{Type: "sqlserver", Host: "192.168.21.102", Port: 1433,
+		User: "agent_ro", Password: "pw", Database: "jotmanager", TLSMinVersion: "1.2"}
+
+	changed, err := dbq.UpdateProfile(path, "mssql", p)
+	if err != nil {
+		t.Fatalf("update: %v", err)
+	}
+	if !changed {
+		t.Fatal("expected changed=true")
+	}
+	if got := readFile(t, path); !strings.Contains(got, "tls_min_version = '1.2'") {
+		t.Fatalf("tls_min_version not updated:\n%s", got)
+	}
+
+	// Clearing the field must remove the key (it is managed, not preserved).
+	p.TLSMinVersion = ""
+	changed, err = dbq.UpdateProfile(path, "mssql", p)
+	if err != nil {
+		t.Fatalf("update: %v", err)
+	}
+	if !changed {
+		t.Fatal("expected changed=true when clearing")
+	}
+	if got := readFile(t, path); strings.Contains(got, "tls_min_version") {
+		t.Fatalf("tls_min_version should be gone:\n%s", got)
+	}
+}
+
+const mssqlEncProfiles = `[profiles.mssql]
+type = 'sqlserver'
+host = '192.168.21.102'
+port = 1433
+user = 'agent_ro'
+password = 'pw'
+database = 'jotmanager'
+encrypt = 'disable'
+readonly = true
+`
+
+func TestUpdateProfileEncryptManagedKey(t *testing.T) {
+	path := writeProfiles(t, mssqlEncProfiles, 0o600)
+	p := dbq.Profile{Type: "sqlserver", Host: "192.168.21.102", Port: 1433,
+		User: "agent_ro", Password: "pw", Database: "jotmanager", Encrypt: "mandatory"}
+	changed, err := dbq.UpdateProfile(path, "mssql", p)
+	if err != nil {
+		t.Fatalf("update: %v", err)
+	}
+	if !changed {
+		t.Fatal("expected changed=true")
+	}
+	if got := readFile(t, path); !strings.Contains(got, "encrypt = 'mandatory'") {
+		t.Fatalf("encrypt not updated:\n%s", got)
+	}
+	p.Encrypt = ""
+	if _, err := dbq.UpdateProfile(path, "mssql", p); err != nil {
+		t.Fatalf("update: %v", err)
+	}
+	if got := readFile(t, path); strings.Contains(got, "encrypt =") {
+		t.Fatalf("encrypt should be gone:\n%s", got)
+	}
+}
